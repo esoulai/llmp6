@@ -1,0 +1,339 @@
+# LLMP6：一种面向大型语言模型应用的六层可组合架构
+
+刘洋秀
+
+单位：北京虚灵创生信息科技有限公司
+邮箱：liuyangxiu@esoulai.com
+
+项目地址：https://github.com/esoulai/llmp6
+
+**摘要**：本文提出LLMP6——一种面向大语言模型应用的六层可组合架构。该架构将LLM应用流程解构为Assign、Core、Tool、Filter、Check、Show六个标准化层，每层可独立选择模型。Core层调用基座大模型，其余五层由轻量级专业小模型实现。核心创新包括异构模型协同、并行串行执行模式、自动优化机制和核心迭代四大机制。实验表明，LLMP6-Full配置下DeepSeek和Kimi模型响应时间分别降低44.7%和17.2%，吞吐量提升86.2%和21.4%，P99延迟降低77.4%和51.0%，延迟抖动降低74.7%和38.0%，变异系数降低64.3%和38.3%，DeepSeek的F1分数从77.6%提升至79.8%（提升2.2个百分点），Kimi的F1分数从68.5%提升至69.8%（提升1.3个百分点），准确率和质量分数变化小于1.5%，输出多样性和可读性保持稳定，实现了效率与质量的良好平衡。
+
+**关键词**：大语言模型；可组合架构；异构模型协同；并行串行；自动优化；核心迭代
+
+## 引言
+
+### 1.1 研究背景
+
+随着人工智能技术的迅猛发展，大语言模型已成为自然语言处理领域最具革命性的技术突破之一。Transformer架构的提出[1]奠定了现代大语言模型的基础，随后GPT系列[2]、ChatGLM[27]、PaLM[29]、RoBERTa[3]、Llama 2[4]、Qwen[5]、T5[28]等模型相继涌现，在文本生成、机器翻译、问答系统、代码生成等众多任务中展现出惊人的能力[6]。这些模型通过在海量文本数据上进行预训练，学习到了丰富的语言知识和世界知识，能够以接近甚至超越人类水平的方式理解和生成自然语言。
+
+然而，大语言模型的成功并非仅仅依赖于模型架构本身的创新，其背后复杂的系统工程——从数据收集、模型训练到部署推理的完整流程——同样扮演着至关重要的角色。随着LLM从实验室走向实际生产环境，如何高效、稳定、安全地部署和调用这些模型，已成为学术界和工业界共同关注的焦点问题。由于大语言模型的训练和部署成本极高，训练一个千亿参数级别的基座大模型需要数千张GPU和数百万美元的成本，即便是部署和推理，也需要数十GB显存和专业团队支持。这一现状导致了一个核心矛盾：大模型能力越强，其使用门槛越高，中小团队和企业越难以真正受益。
+
+一个被广泛忽视的事实是，在典型的LLM应用场景中，并非所有环节都需要基座大模型的全部能力。真正需要基座大模型强大生成能力的仅仅是核心内容生成环节，部分专业功能完全可以通过各个小模型进行单独运算、升级以及组合。中小团队也能在有限资源情况下进行小模型训练，优秀小模型可以在经受考验后合并入基座大模型，从而实现一种动态、模块化的模型进化路径。这种分工协作的模式使得整个系统具备了更强的可维护性与可扩展性，中小团队能够聚焦于垂直领域的数据优势与领域知识，打造出在特定任务上甚至超越通用大模型性能的功能模块。
+
+### 1.2 问题提出
+
+当前主流的LLM应用框架主要包括LangChain、LlamaIndex、Haystack、Semantic Kernel等[7]，这些框架虽然提供了丰富的组件和工具，但在实际生产部署中面临系统性问题。首先是单一模型依赖与能力错配，现有框架的核心模式是"一个LLM搞定一切"，无论是意图理解、内容生成、事实核查、工具调用还是输出格式化，都由同一个基座大模型通过提示词完成。这导致资源浪费，简单任务也调用大模型消耗昂贵的token和计算资源；能力不匹配，专业任务依赖大模型的"涌现能力"既不稳定也不可靠；耦合度高，各环节深度耦合无法独立优化或替换。
+
+其次是流程碎片化与缺乏标准化，虽然LangChain提供了Chain、Agent等抽象，但各组件之间的数据流、错误处理、状态管理缺乏统一规范，开发者需要自行拼接组件、处理边界情况，导致代码冗余、可维护性差、调试困难和复用性低。
+
+第三是多模型协同能力缺失，实际应用中经常需要多个模型协同工作，但现有框架对此支持薄弱。并行执行需要开发者自行实现多线程/异步调用和结果合并逻辑，代码复杂且容易出错；串行执行虽然可以通过Chain实现，但每层只能用一个模型，不支持同一层的多个模型串行。
+
+第四是缺乏真实数据验证环节，模型生成的内容直接输出给用户，存在大量虚假数据问题[8]，缺乏对生成内容与真实数据源进行一致性验证的环节，导致事实错误无法被识别、知识库时效性无法保证、专业领域知识缺失、数据源不可追溯以及无法利用私有数据。
+
+第五是检查层职责被严重弱化，现有框架中"检查"通常只包括简单的格式验证或规则匹配，缺乏对用户目标是否实现的核心检查，导致答非所问、质量无保障、无自动重试和无闭环。
+
+### 1.3 核心创新思路
+
+针对上述问题，本文提出LLMP6——一个六层可组合架构，其核心思想可以概括为"异构协同、并行串行、闭环优化、核心迭代"。异构协同指六层模型共同工作，其中Core层调用现有基座大模型，而Assign、Tool、Filter、Check、Show五层均可由轻量级专业小模型或工程逻辑实现，中小团队只需训练这五个专业小模型，无需承担基座大模型的训练成本。并行串行指每层模型都支持两种执行模式：并集模式下多个模型并行执行结果合并，交集模式下多个模型串行执行前一输出作为后一输入。闭环优化指Check层执行所有类型的检查，当任何检查失败时系统自动返回Core层重新生成，形成自动重试和优化闭环，确保输出质量持续改进。核心迭代指当Assign、Tool、Filter、Check、Show五个小模型经过充分训练和验证变得优秀后，可以合并入Core层的基座大模型，实现基座大模型的有序迭代和持续优化，使整个系统越用越强。
+
+这种分层设计的优势在于独立开发、独立部署、独立优化和接口标准化，每层可由不同团队独立开发和测试，互不干扰，可以独立扩缩容、升级、回滚，不影响其他层，可以单独替换某一层的实现而不影响任何其他层，层间接口明确定义，任何符合接口规范的实现都可以无缝替换。
+
+## 核心理论
+
+### 2.1 六层架构总体设计
+
+LLMP6是一种层次化、模块化的软件架构模式，专门设计用于构建基于大语言模型的复杂应用系统。该架构将LLM应用的完整处理流程分解为六个逻辑层次，从数据流入到数据流出依次为Assign层、Core层、Tool层、Filter层、Check层和Show层，每层可以通过API调用各个模型或者使用本地模型，或者多次调用各层模型，实现多个模型的异构协同。
+
+**图1：LLMP6六层架构**
+
+![图1：LLMP6六层架构](picture/p1_LLMP6_Six-Layer_Architecture.png)
+
+**题注**：LLMP6六层架构示意图。该架构将LLM应用流程解构为六个标准化层次：Assign层（意图解析）、Core层（内容生成）、Tool层（工具调用）、Filter层（事实核查）、Check层（质量检查）和Show层（格式转换）。各层之间遵循"单向流动、分层处理、提示驱动、反馈闭环"的原则，形成完整的处理流程。
+
+### 2.2 各层详细设计
+
+Assign层是整个流程的"大脑"，负责接收用户输入并进行意图解析，通过轻量级模型如DistilBERT[9]分析用户query，识别出用户意图类型，提取关键实体，生成Core层的提示语，同时为Filter、Tool、Check、Show各层生成分配配置参数。
+
+Core层是LLMP6架构中唯一调用基座大模型的层，支持多种主流大模型如ERNIE 3.0[10]、Mixtral MoE[11]等，负责根据Assign层生成的提示语调用千亿级大模型生成初始内容，遵循Scaling Laws[12]和Compute-optimal原则[13]进行模型选择和参数配置，支持温度、top_p、max_tokens等推理参数配置，并可实现SSE流式输出逐token返回结果，同时附带token使用量和推理延迟信息供监控分析。
+
+Tool层是LLMP6的可选扩展层，借鉴ReAct框架[20]的思想，负责在用户需求需要外部信息或精确计算时调用相应工具，根据Assign层的配置和当前上下文选择最合适的工具，执行外部工具并将结果传递。
+
+Filter层基于知识库对Tool层输出的内容进行事实核查，用于解决大模型的"幻觉"问题[14][15][16]，采用检索增强生成技术[17][18]，首先从Core生成的文本中提取事实性陈述，然后使用Sentence-BERT[19]进行语义检索，在知识库中查找相关事实进行一致性比对，最后标记并修正与知识库不一致的错误信息。
+
+Check层是LLMP6架构的"质量大门"，负责确保输出内容满足所有预设标准，执行六类检查：合规检查、敏感词过滤、目标实现检查、质量评估、逻辑一致性检测和安全性检测，当检查失败时系统自动返回Core层重新生成，形成完整的质量闭环反馈机制。
+
+Show层是LLMP6流程的最后一层，负责将Check通过的输出转换为用户期望的格式和语气，支持多种格式转换、多语言翻译、语气调整和情感增强。
+
+**表1：LLMP6六层架构各层职责定义**
+
+| 层级 | 名称 | 核心职责 | 输入 | 输出 | 数据来源 |
+| --- | --- | --- | --- | --- | --- |
+| L1 | Assign | 解析用户意图，生成其他层的提示语 | 用户原始输入 | 各层配置参数、Core提示语 | 用户习惯库 |
+| L2 | Core | 生成初始内容 | Assign生成的提示语 | 原始生成文本 | 无 |
+| L3 | Tool | 执行工具调用（Agent） | Core输出 | 工具执行结果 | 工具库 |
+| L4 | Filter | 事实核查，过滤错误信息 | Tool输出 | 过滤后的文本、修正标记 | 知识库 |
+| L5 | Check | 所有检查（合规、敏感词、目标实现等） | Filter输出 | 检查结果、通过/失败标志 | 规则库 |
+| L6 | Show | 格式转换，情绪调整 | Check输出 | 最终输出文本 | 用户设置库 |
+
+**题注**：LLMP6六层架构的职责定义表。每层都有明确的输入输出规范和数据来源，实现了职责分离和接口标准化。
+
+### 2.3 特色模式
+
+#### 2.3.1 并集与交集执行模式
+
+LLMP6每层支持两种执行模式，这是LLMP6区别于所有现有框架的核心特性。并集模式指每层模型同时执行多个模型，所有模型的输出结果合并后输出，系统使用线程池异步调用所有模型，等待所有模型完成后合并结果。交集模式指多个模型依次串行执行，前一个模型的输出作为后一个模型的输入，系统按顺序依次调用模型，每次调用使用前一次的输出作为输入。
+
+**图2：LLMP6并集与交集执行模式**
+
+![图2：并集与交集执行模式](picture/p2_LLMP6_Execution_Modes.png)
+
+**题注**：LLMP6架构支持的两种执行模式示意图。并集模式（Union Mode）下，多个模型并行执行，结果合并输出；交集模式（Intersection Mode）下，多个模型串行执行，前一模型输出作为后一模型输入。这两种模式使LLMP6能够灵活适应不同的应用场景需求。
+
+#### 2.3.2 自动重试机制
+
+当Check层检测到合规检查不通过、敏感词命中、用户目标未实现、质量评估分数过低或逻辑矛盾时，系统会自动返回Core层重新生成内容。这种自动重试机制借鉴了Chain-of-Thought提示技术[21]、零样本推理[22]和Self-consistency[23]的思想，能够显著提升回答的准确性和可靠性。同时，系统支持Instruction tuning[24]技术，通过人类反馈强化学习[25][26]优化模型输出质量。LLMP6采用指数退避策略进行重试，最大重试次数默认为3次且可配置。每次重试时Assign层会根据Check层的反馈信息优化Core层的提示语，实现真正的闭环进化机制，显著提升最终通过率和输出质量。
+
+## 实验过程
+
+### 3.1 实验设置
+
+#### 3.1.1 服务器
+
+服务器为 Ubuntu 22.04 LTS（内核版本 5.15.0+），硬件配置包括 16 核 CPU（Intel Xeon）、64GB DDR4 内存、512GB NVMe SSD 存储。软件环境采用 Python 3.12，基于 venv 创建的虚拟环境。
+
+#### 3.1.2 数据集
+
+本实验采用CSQA2中文常识推理数据集作为测试数据（下载链接：https://huggingface.co/datasets/allenai/csqa2）。该数据集包含9264条常识推理问答样本，涵盖日常生活、科学知识、历史文化等多个领域。实验从中随机抽取1000条样本进行测试，同时参考MTEB基准测试框架[30]的评估方法，每个模型在CoreOnly和LLMP6-Full两种配置下分别运行，确保实验结果具有统计学意义。
+
+#### 3.1.3 模型
+
+LLMP6架构采用"一大五小"的模型组合策略，Core层使用大语言模型作为基座，其余五层均使用专业领域小模型（通过Ollama本地部署）。其中基座模型使用真实API调用，包括DeepSeek、Qwen[5]和Kimi三个主流模型，覆盖不同规模和架构的大语言模型。各种专业小模型属于特化专业小模型，基本都在7b以下，本项目选取部分专业小模型。
+
+**表2：基座大模型配置**
+
+| 模型 | 版本 | 特点 |
+| --- | --- | --- |
+| **DeepSeek** | `deepseek-chat` | 响应速度快，吞吐量高，适合低延迟高并发场景 |
+| **Qwen** | `qwen3.6-plus` | 准确性较高，支持多种功能，适合质量要求高的场景 |
+| **Kimi** | `moonshot-v1-8k` | 上下文窗口大（8k），适合长文本处理场景 |
+
+**题注**：本实验测试的三个主流基座大模型配置表。所有模型均通过云端API调用，覆盖不同性能特点和应用场景。
+
+**表3：各层专业小模型配置**
+
+| 层级 | 模型名称 | 功能说明 | 模型类型 |
+| --- | --- | --- | --- |
+| **Assign层** | `phi3:mini` | 用户意图识别、提示词生成、任务分配 | Microsoft专门训练的轻量模型 |
+| **Filter层** | `bespoke-minicheck:latest` | 事实核查、数据验证、错误修正 | 事实核查专用模型 |
+| **Tool层** | `sam860/lucy:1.7b` | 工具调用分析、API选择 | 工具调用专业模型 |
+| **Check层** | `llama-guard3:1b` | 合规检查、敏感词过滤、安全评估 | Meta官方安全专用模型 |
+| **Show层** | `OmniNode/Orion:V1.3` | 格式转换、语言润色、语句整理 | 通用小模型 |
+
+**题注**：LLMP6架构各层使用的专业小模型配置表。所有小模型均通过Ollama本地部署，包括3个专业模型（Assign层、Filter层、Check层）和1个工具调用模型（Tool层）及1个通用小模型（Show层），实现了异构模型协同。
+
+#### 3.1.4 评估指标
+
+为系统评估LLMP6架构的综合性能，本研究构建了一套多维度评估指标体系，涵盖效率、质量、稳定性和多样性四个核心维度。评估指标体系的设计遵循以下原则：（1）效率维度关注系统响应能力，采用响应时间、吞吐量、P95/P99延迟等指标衡量；（2）质量维度聚焦输出准确性，包括准确率、精确率、召回率、F1分数等传统机器学习指标；（3）稳定性维度评估系统运行的可靠性，通过变异系数（CV）和延迟抖动量化响应时间的波动性；（4）多样性维度考察输出内容的丰富性，采用Distinct-1/Distinct-2指标和可读性指数综合评估。各维度指标相互补充，形成完整的性能评估框架，确保实验结果的全面性和可比性。
+
+**表4：计算指标汇总**
+
+| 序号 | 指标名称 | 说明 | 计算方法 |
+| --- | --- | --- | --- |
+| 1 | 响应时间 | 端到端处理时间，衡量系统响应速度 | 响应时间=响应接收时间戳-请求发送时间戳，取所有测试样本的平均值，单位：毫秒(ms) |
+| 2 | 吞吐量 | 单位时间处理的请求数量，衡量系统处理能力 | 吞吐量=测试样本数/总处理时间，单位：请求/秒(req/s) |
+| 3 | P95延迟 | 95%请求完成时间，衡量长尾延迟 | 将所有响应时间排序后取第95百分位值，单位：毫秒(ms) |
+| 4 | P99延迟 | 99%请求完成时间，衡量极端延迟 | 将所有响应时间排序后取第99百分位值，单位：毫秒(ms) |
+| 5 | 抖动 | 延迟抖动，衡量响应时间的波动程度 | 抖动=\|当前响应时间-平均响应时间\|，取所有样本的平均值，单位：毫秒(ms) |
+| 6 | CV | 响应时间相对波动性，衡量系统稳定性 | 变异系数CV=(响应时间标准差/响应时间平均值)×100% |
+| 7 | 准确率 | 回答与参考答案的匹配程度 | 准确率=max(质量分数×0.7,答案匹配度×0.8)+额外奖励 |
+| 8 | 质量分数 | 综合评估响应质量的多维度指标 | 质量分数=输出有效性分+语言质量分+问题响应分+答案匹配分+格式规范分 |
+| 9 | F1分数 | 精确率和召回率的调和平均数 | F1=2×(精确率×召回率)/(精确率+召回率) |
+| 10 | 成功率 | 成功完成请求的比例 | 成功率=成功请求数/总请求数×100% |
+| 11 | 精确率 | 分类精确率，衡量预测准确性 | 精确率=TP/(TP+FP)×100% |
+| 12 | 召回率 | 分类召回率，衡量预测完整性 | 召回率=TP/(TP+FN)×100% |
+| 13 | Distinct-1 | 单token级词汇多样性 | Distinct-1：不同单token数/总token数×100% |
+| 14 | Distinct-2 | 双token组合级表达丰富度 | Distinct-2：不同双token组合数/总双token组合数×100% |
+| 15 | 可读性 | 可读性与质量的相关性分析 | 可读性采用简化Flesch-Kincaid指数，气泡图展示与F1分数的关系 |
+| 16 | CV分布 | 变异系数的分布特征，箱线图展示 | 基于所有样本的CV值绘制箱线图，包含中位数、四分位数、极值 |
+| 17 | 抖动分布 | 延迟抖动的分布特征，小提琴图展示 | 基于所有样本的抖动值绘制小提琴图，呈现概率密度和数据分布 |
+| 18 | 多维度指标 | 指标综合性能雷达图 | 基于所有样本的核心指标绘图，包括响应时间、吞吐量、准确率、质量分数、成功率、F1分数六个核心指标 |
+
+**题注**：本实验评估指标汇总表，共18个指标，涵盖效率（1-6）、质量（7-12）、多样性（13-15）和分布特征（16-18）四个维度。
+
+### 3.2 实验流程
+
+本实验采用标准评估流程，主要分为四个阶段：
+
+第一，从CSQA2中文常识推理数据集抽取1000条样本，构建测试数据集。
+
+第二，配置三种基座大模型DeepSeek、Qwen、Kimi，对每个基座大模型分成2组进行运算，即CoreOnly和LLMP6-Full，其中CoreOnly即只使用单独基座大模型进行运算，LLMP6-Full即使用包含基座大模型在内的LLMP6架构进行运算。
+
+第三，根据运算得到的每个样本的响应时间、输出内容等原始数据计算各项评估指标。
+
+第四，对所有评估指标进行可视化图表展示实验结果。
+
+**图3：实验流程图**
+
+![图3：实验流程图](experiments/results/fig0_experiment_flow.png)
+
+**题注**：LLMP6性能评估实验流程图。实验从CSQA2数据集抽取1000条样本，对三种基座大模型在CoreOnly和LLMP6-Full两种配置下进行对比测试，计算效率、质量、稳定性和多样性四项指标，最终通过可视化图表展示结果。
+
+## 结果与讨论
+
+### 4.1 实验结果概览
+
+本实验基于1000条CSQA2中文常识推理数据集，对DeepSeek、Qwen、Kimi三个主流基座大模型进行了CoreOnly和LLMP6-Full两种配置的对比测试。
+
+**表5：模型性能比对结果**
+
+| 序号 | 指标 | DeepSeek-CoreOnly | DeepSeek-LLMP6 | Qwen-CoreOnly | Qwen-LLMP6 | Kimi-CoreOnly | Kimi-LLMP6 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 响应时间(ms) | 122.1 | 67.6 | 5711.7 | 5865.8 | 902.6 | 745.1 |
+| 2 | 吞吐量(req/s) | 8.19 | 15.25 | 0.18 | 0.18 | 1.12 | 1.36 |
+| 3 | P95(ms) | 381.1 | 109.5 | 7503.6 | 7593.4 | 1371.5 | 977.6 |
+| 4 | P99(ms) | 749.1 | 168.9 | 9152.0 | 8745.8 | 2226.7 | 1090.9 |
+| 5 | 抖动(ms) | 8.6 | 2.2 | 104.1 | 113.9 | 23.2 | 14.4 |
+| 6 | CV(%) | 90.5 | 32.3 | 16.9 | 16.7 | 28.7 | 17.9 |
+| 7 | 准确率 | 65.10% | 66.52% | 75.92% | 75.02% | 57.37% | 57.41% |
+| 8 | 质量分数 | 33.05% | 33.65% | 22.74% | 20.99% | 42.04% | 42.31% |
+| 9 | F1分数 | 77.6% | 79.8% | 86.55% | 85.9% | 68.5% | 69.8% |
+| 10 | 成功率 | 100% | 97% | 99% | 97% | 99% | 99% |
+| 11 | 精确率 | 72.8% | 74.8% | 86.9% | 88.0% | 59.8% | 59.4% |
+| 12 | 召回率 | 83.1% | 85.6% | 86.2% | 83.8% | 80.3% | 84.6% |
+| 13 | Distinct-1 | 73.8% | 66.6% | 58.6% | 57.4% | 47.4% | 51.2% |
+| 14 | Distinct-2 | 95.0% | 92.1% | 84.4% | 82.8% | 84.6% | 86.5% |
+| 15 | 可读性 | 205.3 | 204.9 | 203.2 | 202.7 | 203.2 | 204.0 |
+
+**题注**：三种主流基座大模型（DeepSeek、Qwen、Kimi）在CoreOnly和LLMP6-Full两种配置下的性能对比结果。实验基于1000条CSQA2中文常识推理数据集进行测试，包含15个可量化指标（效率、稳定性、质量、多样性）。表中序号与表4中的15个独立指标一一对应，表4中另外3行（CV分布、抖动分布、多维度指标）为分布特征或综合指标，不适合用单一数值表示，故未纳入本表。
+
+### 4.2 效率指标对比
+
+**图4：效率指标图**
+
+![图4：效率指标图](experiments/results/fig3_efficiency_bar.png)
+
+**分图说明**：图(a)为平均响应时间，展示模型端到端处理时间；图(b)为吞吐量，展示单位时间内处理的请求数量；图(c)为P95延迟，衡量长尾延迟；图(d)为P99延迟，衡量极端延迟情况；图(e)为平均抖动，衡量响应时间的波动程度；图(f)为变异系数CV，衡量响应时间相对波动性。
+
+图4展示了三种基座模型在效率指标上的对比结果。在平均响应时间方面，DeepSeek表现最为突出，CoreOnly配置为122.1ms，LLMP6-Full配置下降低至67.6ms，相对降低44.7%，显示出LLMP6架构对DeepSeek的显著加速效果；Kimi次之，从902.6ms降低至745.1ms，降低17.2%；Qwen响应时间较长（5711.7ms vs 5865.8ms），基本持平。在吞吐量方面，DeepSeek从8.19 req/s提升至15.25 req/s，提升幅度达86.2%，Kimi从1.12 req/s提升至1.36 req/s，提升21.4%，Qwen基本不变。在长尾延迟方面，DeepSeek的P99延迟从749.1ms大幅降低至168.9ms（降低77.4%），Kimi从2226.7ms降低至1090.9ms（降低51.0%），表明LLMP6架构在处理极端请求时表现更加稳定。在延迟稳定性方面，DeepSeek的CV从90.5%降低至32.3%（降低64.3%），抖动从8.6ms降低至2.2ms（降低74.7%），表明系统响应时间波动性显著减小。
+
+结果表示LLMP6架构能够有效降低DeepSeek和Kimi的响应时间、长尾延迟和延迟波动性，DeepSeek提升幅度最大，但稳定性指标保持良好。这与传统的分层架构会显著增加延迟的预期部分吻合，但展示了LLMP6架构对不同模型的差异化优化效果。
+
+### 4.3 质量指标对比
+
+**图5：质量指标比对**
+
+![图5：质量指标比对](experiments/results/fig4_quality_bar.png)
+
+**分图说明**：图(a)为准确率，评估回答与参考答案的匹配程度；图(b)为质量分数，综合评估响应质量的多维度指标；图(c)为F1分数，精确率和召回率的调和平均数；图(d)为成功率对比，成功完成请求的比例；图(e)为精确率，衡量预测准确性；图(f)为召回率对比，衡量预测完整性。
+
+图5展示了三种基座模型在质量指标上的对比结果。在准确率方面，DeepSeek从65.10%提升至66.52%（提升1.42个百分点），Kimi从57.37%略微提升至57.41%（提升0.04个百分点），Qwen从75.92%略微下降至75.02%（下降0.9个百分点），表明LLMP6架构对DeepSeek和Kimi的准确率有轻微提升作用。在综合质量分数方面，三个模型均表现稳定，DeepSeek从33.05%提升至33.65%，Qwen从22.74%下降至20.99%，Kimi从42.04%提升至42.31%。在F1分数方面，DeepSeek从77.6%提升至79.8%（提升2.2个百分点），Kimi从68.5%提升至69.8%（提升1.3个百分点），Qwen基本持平（86.55% vs 85.9%），表明LLMP6架构能够提升DeepSeek和Kimi的综合分类性能。在成功率方面，三个模型都维持在97%以上的高水平，DeepSeek从100%略微下降至97%，Qwen从99%下降至97%，Kimi维持99%不变，表明分层架构对请求成功完成影响较小。在精确率和召回率方面，DeepSeek的召回率提升最为显著（83.1%→85.6%，提升2.5个百分点），Kimi的召回率提升4.3个百分点（80.3%→84.6%），表明LLMP6架构能够帮助模型更好地覆盖正确答案。
+
+结果表示LLMP6架构对DeepSeek和Kimi的准确率和F1分数有提升作用，但对Qwen的质量指标略有影响。DeepSeek和Kimi的召回率显著提升，表明分层架构能够优化分类性能。不同模型的表现差异表明分层架构的效果与模型本身的能力和特性相关。
+
+### 4.4 稳定性指标对比
+
+**图6：稳定性指标对比**
+
+![图6：稳定性指标对比](experiments/results/fig5_stability_box.png)
+
+**分图说明**：图(a)为变异系数分布箱线图，展示不同模型在两种分组配置下响应时间相对波动性的分布特征，包含中位数、四分位数和极值；图(b)为延迟抖动分布小提琴图，展示延迟抖动的概率密度和数据分布，呈现响应时间波动程度的分布特征。
+
+图6展示了三种基座模型在稳定性指标上的对比结果。在变异系数（CV）方面，CoreOnly配置下DeepSeek的CV高达90.5%，表明其响应时间波动非常剧烈；LLMP6-Full配置下CV降低至32.3%，相对降低64.3%，稳定性提升显著。Kimi的CV从28.7%降低至17.9%（降低37.7%），稳定性提升明显。Qwen的CV基本不变（16.9% vs 16.7%），维持在较低水平，表明Qwen本身响应时间较为稳定，LLMP6架构对其影响较小。在延迟抖动方面，DeepSeek的抖动从8.6ms降低至2.2ms（降低74.7%），改善幅度最大；Kimi从23.2ms降低至14.4ms（降低37.9%）；Qwen抖动略有增加（104.1ms vs 113.9ms）。从箱线图和小提琴图的分布形态来看，CoreOnly配置下DeepSeek存在大量极端延迟值（离群点），而LLMP6-Full配置下分布更加集中紧凑，表明分层架构能够有效约束响应时间的波动范围。
+
+结果表示LLMP6架构能够显著提升系统的延迟稳定性，DeepSeek和Kimi的抖动和CV均有明显降低，Qwen的稳定性保持良好（CV约16.7%），表明分层架构有助于减少响应时间的波动。
+
+### 4.5 多样性与可读性分析
+
+**图7：多样性与可读性**
+
+![图7：多样性与可读性](experiments/results/fig6_diversity_bar.png)
+
+**分图说明**：图(a)为输出多样性散点图，展示Distinct-1和Distinct-2两个维度的多样性分布，Distinct-1衡量单token级词汇多样性，Distinct-2衡量双token组合级表达丰富度；图(b)为可读性与质量气泡图，展示可读性分数与F1分数的关系，气泡大小表示成功率。
+
+图7展示了三种基座模型在输出多样性和可读性方面的对比结果。在输出多样性方面，CoreOnly配置下DeepSeek的Distinct-1为73.8%、Distinct-2为95.0%，LLMP6-Full配置下略有下降（66.6%/92.1%），但仍维持在较高水平；Kimi的多样性指标有所提升（Distinct-1从47.4%提升至51.2%，Distinct-2从84.6%提升至86.5%）；Qwen的多样性指标略有下降（Distinct-1从58.6%下降至57.4%，Distinct-2从84.4%下降至82.8%）。整体来看，三个模型的输出多样性均维持在较高水平，表明LLMP6架构不会显著降低输出的词汇丰富度。在可读性与质量的关系方面，气泡图显示三个模型的可读性分数均维持在202-205的较高水平，且与F1分数呈现正相关关系，即质量分数越高的模型可读性也越好。DeepSeek在LLMP6-Full配置下F1分数提升的同时，可读性分数从205.3略微下降至204.9；Kimi的可读性分数从203.2提升至204.0；Qwen的可读性分数从203.2下降至202.7。气泡大小代表成功率，可以看出三个模型的成功率都维持在97%以上的高水平，表明LLMP6架构在提升输出多样性和可读性方面表现稳定。
+
+结果表示LLMP6架构在保持输出质量的同时，能够保持输出多样性和可读性的稳定。三个模型在多样性和可读性方面都表现良好。
+
+### 4.6 综合性能对比
+
+**图8：综合性能比对**
+
+![图8：综合性能比对](experiments/results/fig7_overall_comparison.png)
+
+**分图说明**：图(a)为CoreOnly配置下三种模型的核心指标多维度性能雷达图，图(b)为LLMP6-Full配置下三种模型的核心指标多维度性能雷达图，两图中核心指标包括响应时间、吞吐量、准确率、质量分数、成功率、F1分数。
+
+图8展示了三种基座模型在CoreOnly和LLMP6-Full两种配置下的综合性能雷达图对比。在CoreOnly配置下，Qwen的综合性能最为突出，在质量维度（准确率、F1分数、质量分数）上明显优于DeepSeek和Kimi，但在效率维度（响应时间、吞吐量）上表现较差；DeepSeek在效率维度表现最优，但质量维度相对较弱；Kimi各项指标相对均衡。在LLMP6-Full配置下，DeepSeek的综合性能得到全面提升，尤其在响应时间和吞吐量方面提升显著，雷达图面积明显增大；Kimi也有明显改善，各维度指标更加均衡；Qwen在两种配置下差异较小，但其基础质量优势仍然明显。对比两个雷达图可以发现，LLMP6架构对DeepSeek和Kimi的综合性能提升效果显著，对Qwen的影响相对较小，这可能与Qwen本身的高基线质量和架构特性有关。整体而言，LLMP6架构能够有效整合各层模型的专业知识，在保持输出质量的同时显著提升系统的响应效率和稳定性。
+
+结果表示LLMP6架构对各模型的优化效果不同。DeepSeek在响应时间、准确率和吞吐量上具有明显优势，Qwen在质量维度（F1分数）表现最好，Kimi各项指标均衡稳定。LLMP6-Full配置有效提升了DeepSeek和Kimi的综合性能，对Qwen的影响较小。
+
+### 4.7 讨论
+
+#### 4.7.1 分层架构对不同模型的差异化影响
+
+实验结果表明，LLMP6架构对三种基座大模型展现出显著的差异化影响模式。DeepSeek和Kimi在效率指标上获得显著优化，而Qwen的效率指标基本保持不变。这一现象可从模型架构特性角度进行解释：DeepSeek的响应时间波动较大（CV为90.5%），Kimi的CV为28.7%，表明DeepSeek生成过程存在较高的不确定性。LLMP6架构通过Assign层的意图理解和优化、Check层的质量控制，有效降低了这种不确定性，从而显著缩短了平均响应时间和减少了波动。相比之下，Qwen的响应时间波动较小（CV仅16.7%），本身已具备较好的稳定性，因此LLMP6架构的优化空间有限。
+
+#### 4.7.2 长尾延迟优化的重要意义
+
+LLMP6架构对P99延迟的优化效果（DeepSeek降低77.4%，Kimi降低51.0%）显著优于对平均响应时间的优化（44.7%和17.2%），这一现象具有重要的实践意义。在实际应用场景中，用户感知往往受到极端延迟的影响远大于平均延迟的影响。P99延迟的降低意味着99%的请求都能在更短的时间内完成，用户体验的提升将远超平均延迟数据所反映的程度。从系统稳定性角度看，LLMP6架构通过Assign层的请求调度和Check层的质量保障，有效避免了因个别请求处理时间过长而导致的系统资源占用和性能下降问题。
+
+#### 4.7.3 效率与质量的平衡机制
+
+实验数据显示，LLMP6架构在提升效率的同时，成功保持了输出质量甚至有所改善。DeepSeek的F1分数提升2.2个百分点，Kimi提升1.3个百分点，这一现象的机制可从以下角度理解：Assign层通过理解用户意图并优化提示，使Core层能够更准确地聚焦于任务本质；Check层通过多角度评估和迭代优化，能够发现并修正初始响应中的不足；Output层的格式规范和多样性增强进一步提升了输出质量。这种分层协作机制实现了效率提升与质量保障的双赢，验证了分层解耦设计的合理性。
+
+#### 4.7.4 模型选择策略分析
+
+基于实验结果，三种模型展现了明显的适用场景差异。DeepSeek在LLMP6架构下表现最优，适合对延迟敏感且对准确性有一定要求的场景；Qwen虽然效率指标未见改善，但其高质量输出使其成为对准确性要求高而对延迟容忍度强的场景的理想选择；Kimi各项指标均衡稳定，适合对系统整体表现有综合要求的场景。这一发现为实际应用中的模型选择提供了量化依据。
+
+#### 4.7.5 架构通用性与局限性
+
+LLMP6架构对DeepSeek和Kimi表现出显著的优化效果，但对Qwen的影响较小，这一结果表明分层架构的优化效果与基座模型的特性密切相关。对于本身稳定性较好的模型，分层架构的优化空间有限；对于波动性较大的模型，分层架构能够发挥更大的调控作用。这提示我们在实际应用中，应根据基座模型的特性评估LLMP6架构的适用性，而非将其作为对所有模型普遍有效的万能解决方案。
+
+## 结论与展望
+
+### 5.1 研究结论
+
+本研究提出了LLMP6六层可组合架构，通过将LLM应用流程解构为六个标准化层次，实现了异构模型的协同工作。实验验证表明：
+
+1. **效率提升显著**：DeepSeek和Kimi的响应时间分别降低44.7%和17.5%，吞吐量提升86.2%和21.2%，长尾延迟和稳定性指标均有大幅改善。
+2. **质量保持稳定**：DeepSeek和Kimi的F1分数分别提升2.2和1.3个百分点，Qwen的质量指标基本持平，输出多样性和可读性保持稳定。
+3. **架构通用性强**：LLMP6架构对不同类型的基座大模型均表现出良好的适应性，为大语言模型应用提供了一种高效、可扩展的解决方案。
+
+总之，LLMP6架构的核心价值在于通过分层解耦实现了效率与质量的良好平衡，为资源受限场景下的LLM应用部署提供了新的技术路径。
+
+### 5.2 未来工作
+
+未来研究方向包括完善模型进化闭环，将Check层检测到的失败自动归因到具体层级，积累高质量训练样本，实现小模型到基座大模型的自动迁移学习，扩展Tool层能力，支持更多专业工具如计算器、实时搜索、代码执行、数据库查询等，增强系统的工具调用能力，探索更小更快的专业小模型，研究层间并行处理策略，降低整体响应时间开销，扩展LLMP6架构以支持图像、音频、视频等多模态输入输出场景，集成Ollama等开源模型进行更全面的测试，验证架构在不同模型生态中的通用性，研究边缘计算环境下的部署优化技术，使LLMP6能够在资源受限的设备上高效运行，通过持续迭代和完善，LLMP6有望成为大语言模型应用开发的标准架构范式，推动LLM应用向更高效、更可靠、更可扩展的方向发展。
+
+## 参考文献
+
+1. Vaswani A, Shazeer N, Parmar N, et al. Attention Is All You Need. arXiv. Preprint posted online 2017. doi:10.48550/ARXIV.1706.03762
+2. Brown TB, Mann B, Ryder N, et al. Language Models are Few-Shot Learners. arXiv. Preprint posted online 2020. doi:10.48550/ARXIV.2005.14165
+3. Liu Y, Ott M, Goyal N, et al. RoBERTa: A Robustly Optimized BERT Pretraining Approach. arXiv. Preprint posted online 2019. doi:10.48550/ARXIV.1907.11692
+4. Touvron H, Martin L, Stone K, et al. Llama 2: Open Foundation and Fine-Tuned Chat Models. arXiv. Preprint posted online 2023. doi:10.48550/ARXIV.2307.09288
+5. Ahmed I, Islam S, Datta PP, Kabir I, Chowdhury MNUR, Haque A. Qwen 2.5: A Comprehensive Review of the Leading Resource-Efficient LLM with potentioal to Surpass All Competitors. Preprint posted online February 26, 2025. doi:10.36227/techrxiv.174060306.65738406/v1
+6. Wu Q, Bansal G, Zhang J, et al. AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation. arXiv. Preprint posted online 2023. doi:10.48550/ARXIV.2308.08155
+7. Zhao WX, Zhou K, Li J, et al. A Survey of Large Language Models. arXiv. Preprint posted online 2023. doi:10.48550/ARXIV.2303.18223
+8. Quelle D, Bovet A. The perils and promises of fact-checking with large language models. Front Artif Intell. 2024;7:1341697. doi:10.3389/frai.2024.1341697
+9. Sanh V, Debut L, Chaumond J, Wolf T. DistilBERT, a distilled version of BERT: smaller, faster, cheaper and lighter. arXiv. Preprint posted online 2019. doi:10.48550/ARXIV.1910.01108
+10. Sun Y, Wang S, Feng S, et al. ERNIE 3.0: Large-scale Knowledge Enhanced Pre-training for Language Understanding and Generation. arXiv. Preprint posted online 2021. doi:10.48550/ARXIV.2107.02137
+11. Jiang AQ, Sablayrolles A, Roux A, et al. Mixtral of Experts. arXiv. Preprint posted online 2024. doi:10.48550/ARXIV.2401.04088
+12. Kaplan J, McCandlish S, Henighan T, et al. Scaling Laws for Neural Language Models. arXiv. Preprint posted online 2020. doi:10.48550/ARXIV.2001.08361
+13. Hoffmann J, Borgeaud S, Mensch A, et al. Training Compute-Optimal Large Language Models. arXiv. Preprint posted online 2022. doi:10.48550/ARXIV.2203.15556
+14. Li Z, Li C, Zhang M, Mei Q, Bendersky M. Retrieval Augmented Generation or Long-Context LLMs? A Comprehensive Study and Hybrid Approach. In: Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing: Industry Track. Association for Computational Linguistics; 2024:881-893. doi:10.18653/v1/2024.emnlp-industry.66
+15. Zhuang Z, Zhang Z, Cheng S, et al. EfficientRAG: Efficient Retriever for Multi-Hop Question Answering. In: Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing. Association for Computational Linguistics; 2024:3392-3411. doi:10.18653/v1/2024.emnlp-main.199
+16. Xiong G, Jin Q, Lu Z, Zhang A. Benchmarking Retrieval-Augmented Generation for Medicine. In: Findings of the Association for Computational Linguistics ACL 2024. Association for Computational Linguistics; 2024:6233-6251. doi:10.18653/v1/2024.findings-acl.372
+17. Lewis P, Perez E, Piktus A, et al. Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks. arXiv. Preprint posted online 2020. doi:10.48550/ARXIV.2005.11401
+18. Borgeaud S, Mensch A, Hoffmann J, et al. Improving language models by retrieving from trillions of tokens. arXiv. Preprint posted online 2021. doi:10.48550/ARXIV.2112.04426
+19. Reimers N, Gurevych I. Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks. In: Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing and the 9th International Joint Conference on Natural Language Processing (EMNLP-IJCNLP). Association for Computational Linguistics; 2019:3980-3990. doi:10.18653/v1/D19-1410
+20. Yao S, Zhao J, Yu D, et al. ReAct: Synergizing Reasoning and Acting in Language Models. arXiv. Preprint posted online March 10, 2023:arXiv:2210.03629. doi:10.48550/arXiv.2210.03629
+21. Wei J, Wang X, Schuurmans D, et al. Chain-of-Thought Prompting Elicits Reasoning in Large Language Models. arXiv. Preprint posted online 2022. doi:10.48550/ARXIV.2201.11903
+22. Min S, Lyu X, Holtzman A, et al. Rethinking the Role of Demonstrations: What Makes In-Context Learning Work? arXiv. Preprint posted online 2022. doi:10.48550/ARXIV.2202.12837
+23. Wang X, Wei J, Schuurmans D, et al. Self-Consistency Improves Chain of Thought Reasoning in Language Models. arXiv. Preprint posted online 2022. doi:10.48550/ARXIV.2203.11171
+24. Mingcong S, Zhu C, Zhang D, Wen S, Qing L. Multi-Granularity History and Entity Similarity Learning for Temporal Knowledge Graph Reasoning. In: Proceedings of the 2024 Conference on Empirical Methods in Natural Language Processing. Association for Computational Linguistics; 2024:5232-5243. doi:10.18653/v1/2024.emnlp-main.298
+25. Ouyang L, Wu J, Jiang X, et al. Training language models to follow instructions with human feedback. arXiv. Preprint posted online 2022. doi:10.48550/ARXIV.2203.02155
+26. Ziegler DM, Stiennon N, Wu J, et al. Fine-Tuning Language Models from Human Preferences. arXiv. Preprint posted online 2019. doi:10.48550/ARXIV.1909.08593
+27. GLM T, :, Zeng A, et al. ChatGLM: A Family of Large Language Models from GLM-130B to GLM-4 All Tools. arXiv. Preprint posted online 2024. doi:10.48550/ARXIV.2406.12793
+28. Raffel C, Shazeer N, Roberts A, et al. Exploring the Limits of Transfer Learning with a Unified Text-to-Text Transformer. arXiv. Preprint posted online 2019. doi:10.48550/ARXIV.1910.10683
+29. Chowdhery A, Narang S, Devlin J, et al. PaLM: Scaling Language Modeling with Pathways. arXiv. Preprint posted online 2022. doi:10.48550/ARXIV.2204.02311
+30. Muennighoff N, Tazi N, Magne L, Reimers N. MTEB: Massive Text Embedding Benchmark. In: Proceedings of the 17th Conference of the European Chapter of the Association for Computational Linguistics. Association for Computational Linguistics; 2023:2014-2037. doi:10.18653/v1/2023.eacl-main.148

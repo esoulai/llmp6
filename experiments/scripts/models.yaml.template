@@ -1,0 +1,21 @@
+# API密钥配置文件模板
+# 复制此文件为 models.yaml 并填入你的真实密钥
+
+models:
+  deepseek:
+    name: DeepSeek
+    url: https://api.deepseek.com/v1/chat/completions
+    model: deepseek-chat
+    key: YOUR_DEEPSEEK_API_KEY_HERE
+  
+  qwen:
+    name: Qwen
+    url: https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+    model: qwen3.6-plus
+    key: YOUR_QWEN_API_KEY_HERE
+  
+  kimi:
+    name: Kimi
+    url: https://api.moonshot.cn/v1/chat/completions
+    model: moonshot-v1-8k
+    key: YOUR_KIMI_API_KEY_HERE

@@ -1,0 +1,32 @@
+# LLMP6 模型配置文件示例
+
+models:
+  # 基座大模型（用于Core层）
+  deepseek:
+    type: api
+    url: https://api.deepseek.com/v1/chat/completions
+    key: YOUR_DEEPSEEK_API_KEY
+    model: deepseek-chat
+  
+  qwen:
+    type: api
+    url: https://api.qwen.xfyun.cn/v1/chat/completions
+    key: YOUR_QWEN_API_KEY
+    model: qwen-max
+    
+  kimi:
+    type: api
+    url: https://api.moonshot.cn/v1/chat/completions
+    key: YOUR_KIMI_API_KEY
+    model: moonshot-v1-8k
+  
+  # 轻量级模型（用于其他层）
+  phi3:
+    type: api
+    url: http://localhost:11434/api/chat
+    model: phi3
+  
+  llama3:
+    type: api
+    url: http://localhost:11434/api/chat
+    model: llama3
