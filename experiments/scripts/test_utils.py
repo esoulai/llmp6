@@ -206,8 +206,8 @@ def call_ollama(model_name, prompt, timeout=60):
 def call_llmp6_full_batch(model_key, prompts):
     """批量调用LLMP6-Full架构 - 正确流程：Assign -> Core -> Tool -> Filter -> Check -> Show"""
     
-    db_path = os.path.join(PROJECT_ROOT, "database.yaml")
-    rules_path = os.path.join(PROJECT_ROOT, "rules.json")
+    db_path = os.path.join(SCRIPT_DIR, "database.yaml")
+    rules_path = os.path.join(SCRIPT_DIR, "rules.yaml")
     
     with open(db_path, 'r', encoding='utf-8') as f:
         db_data = yaml.safe_load(f)

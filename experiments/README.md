@@ -1,23 +1,107 @@
-# LLMP6 实验套件
+<span id="english"></span>
+<div align="center">
 
-本目录包含 LLMP6 六层可组合架构的完整实验数据和测试代码。
+# 📊 LLMP6 Experiment Data
+
+<a href="#english">🇺🇸 English</a> &nbsp;|&nbsp; <a href="#chinese">🇨🇳 中文</a>
+
+</div>
+
+## 📁 1. Directory
+
+```
+experiments/
+├── data/                    # Test datasets
+│   ├── csqa2_experiment_data.json       # Original CSQA2 QA data
+│   └── csqa2_experiment_data_grouped.json  # Grouped data (10 groups × 100 items)
+├── results/                 # Experiment result outputs
+│   ├── comprehensive_test_results.json   # Comprehensive statistical metrics
+│   ├── deepseek_coreonly.json            # DeepSeek CoreOnly results
+│   ├── deepseek_full.json                # DeepSeek LLMP6-Full results
+│   ├── qwen_coreonly.json                # Qwen CoreOnly results
+│   ├── qwen_full.json                    # Qwen LLMP6-Full results
+│   ├── kimi_coreonly.json                # Kimi CoreOnly results
+│   ├── kimi_full.json                    # Kimi LLMP6-Full results
+│   └── *.png                             # Visualization charts
+└── scripts/                 # Test scripts
+    ├── create_grouped_data.py           # Create grouped data
+    ├── run_test_deepseek_coreonly.py    # DeepSeek CoreOnly test
+    ├── run_test_deepseek_full.py        # DeepSeek LLMP6-Full test
+    ├── run_test_qwen_coreonly.py        # Qwen CoreOnly test
+    ├── run_test_qwen_full.py            # Qwen LLMP6-Full test
+    ├── run_test_kimi_coreonly.py        # Kimi CoreOnly test
+    ├── run_test_kimi_full.py            # Kimi LLMP6-Full test
+    ├── compute_metrics.py               # Compute statistical metrics
+    ├── plot_results.py                  # Generate visualization charts
+    ├── plot_architecture_diagrams.py    # Generate architecture diagrams
+    ├── models.yaml                      # Model configuration file
+    ├── database.yaml                    # Fact verification database
+    ├── rules.yaml                       # Compliance rules
+    └── test_utils.py                    # Utility functions module
+```
+
+## 🚀 2. Running the Code
+
+```bash
+# 0. Draw architecture diagrams
+python3 plot_architecture_diagrams.py
+
+# 1. Create grouped data (only need to run once)
+python3 create_grouped_data.py
+
+# 2. Run individual model tests (can run separately)
+python3 run_test_deepseek_coreonly.py
+python3 run_test_deepseek_full.py
+python3 run_test_qwen_coreonly.py
+python3 run_test_qwen_full.py
+python3 run_test_kimi_coreonly.py
+python3 run_test_kimi_full.py
+
+# 3. Compute statistical metrics
+python3 compute_metrics.py
+
+# 4. Generate result charts
+python3 plot_results.py
+```
+
+## 📊 3. Output Results
+
+| File | Content |
+|------|---------|
+| `results/comprehensive_test_results.json` | Comprehensive statistical metrics (all models + configurations) |
+| `results/*_coreonly.json` | Each model's CoreOnly configuration test results |
+| `results/*_full.json` | Each model's LLMP6-Full configuration test results |
+| `results/*.png` | Result data visualization charts |
+
+## ⚠️ 4. Notes
+
+1. **API Costs**: Each `run_test_*.py` script will call the cloud APIs for DeepSeek, Qwen, and Kimi configured in `models.yaml`, which will incur costs
+2. **Ollama Models**: Before running LLMP6-Full tests, ensure you have installed the required Ollama models:
+   ```bash
+   ollama pull phi3:mini
+   ollama pull sam860/lucy:1.7b
+   ollama pull bespoke-minicheck
+   ollama pull llama-guard3:1b
+   ollama pull OmniNode/Orion:V1.3
+   ```
+3. **Environment Configuration**: This repository only contains core result data and essential code. Running the code directly may require additional setup:
+   - python: Python 3.8+ with dependencies: `pip install pyyaml json`
+   - ollama: Ollama server running locally on port 11434
+   - api: API keys configured in `models.yaml`
+   - knowledge base: `database.yaml` and `rules.yaml`
 
 ---
 
-## 🎯 实验目的
+<span id="chinese"></span>
+<div align="center">
 
-验证 LLMP6 架构的性能提升效果：
+# 📊 LLMP6 实验数据
 
-- **对比两种配置**：CoreOnly（仅基座模型） vs LLMP6-Full（完整六层架构）
-- **测试三个模型**：DeepSeek、Qwen、Kimi
-- **评估三类指标**：
-  - ⚡ 效率：响应时间、吞吐量、P95/P99延迟
-  - 📈 质量：准确率、F1分数、质量分数
-  - 🛡️ 稳定性：抖动、变异系数、成功率
+<a href="#english">🇺🇸 English</a> &nbsp;|&nbsp; <a href="#chinese">🇨🇳 中文</a>
 
----
+</div>
 
-## 📁 目录结构
+## 📁 1. 目录结构
 
 ```
 experiments/
@@ -26,7 +110,6 @@ experiments/
 │   └── csqa2_experiment_data_grouped.json  # 分组后数据（10组×100条）
 ├── results/                 # 实验结果输出
 │   ├── comprehensive_test_results.json   # 综合统计指标
-│   ├── raw_test_results.json             # 原始测试结果
 │   ├── deepseek_coreonly.json            # DeepSeek CoreOnly结果
 │   ├── deepseek_full.json                # DeepSeek LLMP6-Full结果
 │   ├── qwen_coreonly.json                # Qwen CoreOnly结果
@@ -35,7 +118,6 @@ experiments/
 │   ├── kimi_full.json                    # Kimi LLMP6-Full结果
 │   └── *.png                             # 可视化图表
 └── scripts/                 # 测试脚本
-    ├── run_experiment.py                # 一键运行完整实验（整合版）
     ├── create_grouped_data.py           # 创建分组数据
     ├── run_test_deepseek_coreonly.py    # DeepSeek CoreOnly测试
     ├── run_test_deepseek_full.py        # DeepSeek LLMP6-Full测试
@@ -46,29 +128,18 @@ experiments/
     ├── compute_metrics.py               # 计算统计指标
     ├── plot_results.py                  # 生成可视化图表
     ├── plot_architecture_diagrams.py    # 生成架构图
+    ├── models.yaml                      # 模型配置文件
+    ├── database.yaml                    # 事实核查知识库
+    ├── rules.yaml                       # 合规规则
     └── test_utils.py                    # 工具函数模块
 ```
 
----
-
-## 🚀 运行方式
-
-### 方法一：一键运行（推荐）
+## 🚀 2. 代码运行
 
 ```bash
-# 进入脚本目录
-cd experiments/scripts
+# 0. 绘制架构图片
+python3 plot_architecture_diagrams.py
 
-# 运行完整实验（调用外部API，会产生费用）
-python3 run_experiment.py
-
-# 生成可视化图表
-python3 plot_results.py
-```
-
-### 方法二：分步运行（适合调试）
-
-```bash
 # 1. 创建分组数据（仅需运行一次）
 python3 create_grouped_data.py
 
@@ -83,101 +154,32 @@ python3 run_test_kimi_full.py
 # 3. 计算统计指标
 python3 compute_metrics.py
 
-# 4. 生成图表
+# 4. 生成结果图片
 python3 plot_results.py
 ```
 
-### 方法三：仅重新计算指标（无需API）
-
-```bash
-python3 compute_metrics.py
-python3 plot_results.py
-```
-
----
-
-## 📊 输出结果
-
-### 数据文件
+## 📊 3. 输出结果
 
 | 文件 | 内容 |
 |------|------|
 | `results/comprehensive_test_results.json` | 综合统计指标（所有模型+配置） |
-| `results/raw_test_results.json` | 原始测试结果（包含所有样本输出） |
 | `results/*_coreonly.json` | 各模型CoreOnly配置测试结果 |
 | `results/*_full.json` | 各模型LLMP6-Full配置测试结果 |
+| `results/*.png` | 结果数据可视化图表 |
 
-### 可视化图表
+## ⚠️ 4. 注意事项
 
-| 图表文件 | 内容 |
-|----------|------|
-| `results/image1.png` | LLMP6六层架构图 |
-| `results/image2.png` | 执行模式示意图（并集/交集） |
-| `results/image3.png` | 实验流程图 |
-| `results/image4.png` | 效率指标对比柱状图 |
-| `results/image5.png` | 质量指标对比柱状图 |
-| `results/image6.png` | 稳定性指标箱线图 |
-| `results/image7.png` | 多样性与可读性分析图 |
-| `results/image8.png` | 综合性能雷达图 |
-
----
-
-## 📈 预期结果
-
-LLMP6-Full 相比 CoreOnly 的预期提升：
-
-| 指标 | 预期变化 |
-|------|----------|
-| 准确率 | ↑ 8-15% |
-| F1分数 | ↑ 5-12% |
-| 质量分数 | ↑ 10-18% |
-| 响应时间 | ↑ 20-40%（因增加多层处理） |
-| 吞吐量 | ↓ 10-20% |
-| 稳定性 | ↑ 显著提升 |
-
----
-
-## 📦 依赖安装
-
-```bash
-pip install requests pyyaml matplotlib seaborn numpy pandas
-```
-
----
-
-## ⚠️ 注意事项
-
-1. **API费用**：`run_experiment.py` 和各 `run_test_*.py` 脚本会调用 DeepSeek、Qwen、Kimi 的云API，会产生费用
-2. **数据备份**：`raw_test_results.json` 包含所有样本的原始输出，用于后续分析，请妥善保存
-3. **Ollama模型**：运行 LLMP6-Full 测试前需确保已安装所需的Ollama模型：
+1. **API费用**：各 `run_test_*.py` 脚本会调用 `models.yaml` 中配置的 DeepSeek、Qwen、Kimi 的云API，会产生费用
+2. **Ollama模型**：运行 LLMP6-Full 测试前需确保已安装所需的Ollama模型：
    ```bash
-   ollama pull llama3.2:3b
+   ollama pull phi3:mini
    ollama pull sam860/lucy:1.7b
    ollama pull bespoke-minicheck
    ollama pull llama-guard3:1b
    ollama pull OmniNode/Orion:V1.3
    ```
-4. **运行时间**：完整实验约需1-2小时（取决于API响应速度和网络状况）
-5. **配置检查**：确保 `scripts/test_utils.py` 中的API密钥配置正确
-
----
-
-## 🔬 实验流程
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    LLMP6 实验流程                           │
-├─────────────────────────────────────────────────────────────┤
-│  1. create_grouped_data.py                                 │
-│     └── 将1000条问答分成10组，每组100条                     │
-│                                                            │
-│  2. run_test_*.py (x6) 或 run_experiment.py               │
-│     └── 分别测试3个模型 × 2种配置 = 6组实验                  │
-│                                                            │
-│  3. compute_metrics.py                                     │
-│     └── 计算准确率、F1、响应时间、吞吐量等指标                │
-│                                                            │
-│  4. plot_results.py                                        │
-│     └── 生成柱状图、雷达图、箱线图等可视化图表                │
-└─────────────────────────────────────────────────────────────┘
-```
+3. **环境配置**：本仓库只包含核心结果数据以及核心代码，直接运行本仓库代码会有困难，需要先配置好环境：
+   - python：Python 3.8+ 及依赖库：`pip install pyyaml json`
+   - ollama：运行 Ollama 服务
+   - api：配置 `models.yaml` 中的 API 密钥
+   - 知识库：配置`database.yaml` 和 `rules.yaml`

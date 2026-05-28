@@ -36,11 +36,6 @@ This project has published a preprint on Zenodo and is currently under review fo
 
 ```
 llmp6/
-├── llmp6_sotware/ # Software
-│ ├── config.py
-│ ├── pipeline.py
-│ ├── cli.py
-│ └── README.md
 ├── experiments/   # Experimental code and results
 │ ├── data/
 │ ├── results/
@@ -93,11 +88,6 @@ LLMP6 是一种面向大型语言模型应用的六层可组合架构，分别�
 
 ```
 llmp6/
-├── llmp6_sotware/ # 软件
-│ ├── config.py
-│ ├── pipeline.py
-│ ├── cli.py
-│ └── README.md
 ├── experiments/   # 实验结果和代码
 │ ├── data/
 │ ├── results/
